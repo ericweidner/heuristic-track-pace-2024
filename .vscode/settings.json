@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./heuristic_solver_eweidner/Cargo.toml"
+    ]
+}
