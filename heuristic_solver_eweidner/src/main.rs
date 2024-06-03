@@ -1,48 +1,89 @@
 
-mod problem;
-mod utils;
-mod interconnection;
+
 use std::{
     fs::File,
     io::{prelude::*, BufReader, self,Write, LineWriter},
-    path::Path, env, 
+    path::Path, env, thread, cmp::Ordering, sync::{self, atomic::AtomicBool}, 
+     
 };
+use std::{collections::HashMap, result, f32::INFINITY};
 
-use crate::interconnection::{SmartCOOInterconnectionMatrix, InterconnectionMatrix};
+use interconnection::{SmartCOOInterconnectionMatrix, InterconnectionMatrix};
+use pengraph::PenaltyGraph;
+use problem::GraphInput;
+use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
+mod pengraph;
+mod problem;
+mod interconnection;
+mod utils;
+mod heuristic_solver;
+
+//use rand::Rng;
+
+
+pub static TERMINATION_SIGNAL: AtomicBool = AtomicBool::new(false);
+
+
 
 fn main() -> io::Result<()>{
     let args: Vec<String> = env::args().collect();
-    // let mut inputpath = "89.gr"; //&args[0];
-    // let mut outputpath = "test3.out";//&args[1];
-
-    let mut inputpath = &args[1];
-    let mut outputpath = &args[2];
-
-    println!("input is {}",inputpath);
-    println!("output is {}",outputpath);
 
 
-    let input = problem::GraphInput::parse(&inputpath, false, true);
-    let interconnection : interconnection::SmartCOOInterconnectionMatrix = SmartCOOInterconnectionMatrix::parse(&input);
 
+    //Load
+    let stdin = std::io::stdin(); 
+    let mut lines : Vec<String> = Vec::new();
+    for line in stdin.lock().lines() {
+        lines.push(line.unwrap());
+    }
+
+    //Register Termination Signals
+    let mut signals = Signals::new(&[SIGINT, SIGTERM])?; 
+    thread::spawn(move || {
+        for sig in signals.forever() {
+            TERMINATION_SIGNAL.store(true, sync::atomic::Ordering::Relaxed);
+            eprintln!("Received signal {:?}", sig);
+        }
+    });
+
+
+
+
+    let input = GraphInput::parse_from_lines(&lines, false, false);
+    let mut    interconnection = SmartCOOInterconnectionMatrix::parse(&input);
+        
    
-    let medi = interconnection.MedianHeuristic();
-    let resultsmart = interconnection.collapse(&medi);
+    
+    let result = heuristic_solver::Solve(&mut interconnection, heuristic_solver::LocalSearchStrat::Interleaved5_2);
 
-    let file = File::create(outputpath)?;
-    let mut filewriter = LineWriter::new(file);
+
+
+    
+
+    // let file = File::create(outputpath)?;
+    // let mut filewriter = LineWriter::new(file);
     
 
     let mut string = String::new();
 
 
-    for res in resultsmart{
-        string.push_str(&format!("{}\n",res));
+    for res in result{
+        println!("{}", res);
+        //string.push_str(&format!("{}\n",res));
     }
 
-    filewriter.write_all(string.as_bytes());
+    //filewriter.write_all(string.as_bytes());
 
 
 
     Ok(())
 }
+
+
+
+
+
+
+
+
+

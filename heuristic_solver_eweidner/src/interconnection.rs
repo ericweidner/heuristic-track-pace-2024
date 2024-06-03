@@ -1,11 +1,12 @@
 
 
 
-use std::{collections::HashMap, result, f32::INFINITY};
+use std::{collections::HashMap, result, f32::INFINITY, sync::atomic::Ordering};
 
 use rand::Rng;
 
-use crate::{problem::GraphInput, utils::Direction};
+//use crate::{problem::GraphInput, main::Direction, solver::bf_cross_counter::CrossingCountFormularSolver};
+use crate::{problem::GraphInput,utils::Direction, TERMINATION_SIGNAL};
 
 
 
@@ -15,8 +16,8 @@ pub(crate) trait InterconnectionMatrix {
     fn get_loose_order(&self) -> Vec<i32>;
     fn switch_loose_by_vertexlabel(&mut self,a:i32,b:i32);
     fn switch_loose_by_position(&mut self,a:usize,b:usize);
-    fn get_value_at(&self,fixedIndex:usize,looseIndex:usize)-> bool;
-    fn get_edge_set(&self) -> Vec<(i32,i32)>;
+    // fn get_value_at(&self,fixedIndex:usize,looseIndex:usize)-> bool;
+    // fn get_edge_set(&self) -> Vec<(i32,i32)>;
     fn to_string(&self) -> String;
     fn print(&self);
 }
@@ -27,11 +28,11 @@ fn default_edgelabel_to_interconnection_coordinates(fixed:i32,loose:i32,fixedSiz
     let loosePos   = (loose - fixedSize) - 1;
     return (fixedPos as usize,loosePos as usize);
 }
-pub(crate) struct SimpleInterconnectionMatrix{
-    pub fixed: Vec<i32>,
-    pub loose:Vec<i32>,
-    pub matrix : Vec<Vec<bool>>
-}
+// pub(crate) struct SimpleInterconnectionMatrix{
+//     pub fixed: Vec<i32>,
+//     pub loose:Vec<i32>,
+//     pub matrix : Vec<Vec<bool>>
+// }
 
 pub(crate) struct SmartCOOInterconnectionMatrix{
     pub fixed: Vec<i32>,
@@ -42,6 +43,33 @@ pub(crate) struct SmartCOOInterconnectionMatrix{
 }
 
 impl SmartCOOInterconnectionMatrix{
+
+    // pub fn f_extractOrphanNodes(&mut self) -> Vec<i32>{
+    //     let temp = self.extractOrphanNodes();
+    //     let mut result = Vec::new();
+    //     for node in temp  {
+    //         result.push(node.0);
+    //     }
+    //     return  result;
+    // }
+
+    pub fn extractOrphanNodes(&mut self) -> Vec<(i32,usize)>{
+        let mut newNodes : Vec<(i32,usize)> = Vec::new();
+        let mut extractedOrphanNodes : Vec<(i32,usize)> = Vec::new();
+        for node in &self.loose  {
+            if self.adjcency_list[node.1].len() > 0 {
+                newNodes.push(*node);
+            }
+            else {
+                extractedOrphanNodes.push(node.clone());
+            }
+        }
+        self.loose = newNodes;
+        return  extractedOrphanNodes;
+    }
+
+    
+
     pub fn CalculateMedianPosition(&self) -> Vec<Vec<(i32,usize)>>{
         let resultsize = self.fixed.len();
         let mut positionVector: Vec<Vec<(i32,usize)>> = vec![Vec::new(); resultsize + 1 as usize];
@@ -58,7 +86,7 @@ impl SmartCOOInterconnectionMatrix{
     }
 
 
-    pub fn switch_with_neighbour_if_beneficial(& mut self, pos:usize,direction : Direction){
+    pub fn switch_with_neighbour_if_beneficial(& mut self, pos:usize,direction : Direction)-> bool{
         let (mut pos_u, mut pos_v) = (0,1);
         if direction == Direction::Left {
             (pos_u,pos_v) = (pos - 1, pos);
@@ -66,20 +94,35 @@ impl SmartCOOInterconnectionMatrix{
             (pos_u,pos_v) = (pos , pos + 1);
         }
 
-        let (stay,switch) = self.calc_local_cross_count_touple_between(pos_u , pos_v);
+        let (stay,switch) = self.calc_local_cross_count_touple_between_positions(pos_u , pos_v);
 
         if stay > switch{
             self.switch_loose_by_position(pos_u, pos_v);
+            return true;
         }
+        return false;
     }
 
-    //Caluclate the crossings between the two specified vertices
-    //returns touple where first value is the crossing in the given position and the second is the crossing if switched
-    pub fn calc_local_cross_count_touple_between(&self,pos_u:usize,pos_v:usize) -> (i32,i32){
-        
+    pub fn calc_local_crossing_count_brute_force(&self,adj_ref_u:usize,adj_ref_v:usize)-> i32{
+        let V_u = &self.adjcency_list[adj_ref_u];
+        let V_v = &self.adjcency_list[adj_ref_v];
+        let mut count = 0;
+        for i in V_u{
+            for j in V_v{
+                if(i > j){
+                    count += 1;
+                }
+            }
+        }
+        return count;
+    }
+
+    //Calculated the number of crossings created by two vertices u and v when arranged uv and vu (uv,vu)
+    pub fn calc_local_cross_count_touple_between_edgelists(&self,adj_ref_u:usize,adj_ref_v:usize)-> (u32,u32){
+               
         //get reference to interconnection arrray
-        let V_u = &self.adjcency_list[self.loose[pos_u].1];
-        let V_v = &self.adjcency_list[self.loose[pos_v].1];
+        let V_u = &self.adjcency_list[adj_ref_u];
+        let V_v = &self.adjcency_list[adj_ref_v];
 
         if V_v.len() == 0 || V_u.len() == 0{
             return (0,0);
@@ -90,8 +133,8 @@ impl SmartCOOInterconnectionMatrix{
          let mut p_u : usize = 0;
 
         //init Tally for total number of crossings
-        let mut C_u : i32 = 0; //C_u = C_uv
-        let mut C_v : i32 = 0; //C_v = C_vu
+        let mut C_u : u32 = 0; //C_u = C_uv
+        let mut C_v : u32 = 0; //C_v = C_vu
 
          if(V_u[p_u] > V_v[p_v]){
              C_u = 1;
@@ -111,43 +154,70 @@ impl SmartCOOInterconnectionMatrix{
         loop {
          
             if V_u.len() <= (p_u +1)  && V_v.len() <= (p_v + 1) {
+                if(V_u[p_u] > V_v[p_v]){
+                    let u = 9;
+                }
+                if(V_u[p_u] < V_v[p_v]){
+                    let u = 4;
+
+                }
+                
                 return (C_u,C_v);
             }
             else if V_u.len() <= (p_u + 1){
                 //Move V
                 p_v += 1;
+                
+                if(V_u[p_u] != V_v[p_v]){
+                    C_v += (p_u + 1) as u32;
 
-                C_v += (p_u + 1) as i32;
+                }
                 
             }
             else if V_v.len() <= (p_v + 1){
                 //Move U
                 p_u += 1;
 
-                C_u += (p_v + 1) as i32;
+                if(V_u[p_u] != V_v[p_v]){
+                    C_u += (p_v + 1) as u32;
+                }
                 
             } else if V_u[p_u + 1] < V_v[p_v + 1] {
                 //Move U
                 p_u += 1;
-  
-                C_u += (p_v + 1) as i32;
+                if(V_u[p_u] != V_v[p_v]){
+                    C_u += (p_v + 1) as u32;
+                }
+                
      
             } else if V_u[p_u + 1] > V_v[p_v + 1] {
                 //Move V
                 p_v += 1;
 
-                C_v += (p_u + 1) as i32;
+                if(V_u[p_u] != V_v[p_v]){
+                    C_v += (p_u + 1) as u32;
+
+                }
+                
 
             } else if V_u[p_u + 1] == V_v[p_v + 1]{
                 //Move Both
-                C_u += (p_v + 1) as i32;
-                C_v += (p_u + 1) as i32;
+                C_u += (p_v + 1) as u32;
+                C_v += (p_u + 1) as u32;
                 p_v += 1;
                 p_u += 1;
             } else {
-                println!("FUCK something happened");
+                println!("something went extremly wrong");
             }
         }
+
+    }
+
+    //Caluclate the crossings between the two specified vertices
+    //returns tuple where first value is the crossing in the given position and the second is the crossing if switched
+    pub fn calc_local_cross_count_touple_between_positions(&self,pos_u:usize,pos_v:usize) -> (u32,u32){
+        return self.calc_local_cross_count_touple_between_edgelists(self.loose[pos_u].1,self.loose[pos_v].1);
+       
 
     }
 
@@ -191,48 +261,301 @@ impl SmartCOOInterconnectionMatrix{
 
     pub fn PerformMedianRearrangement(&mut self){
         let pos = self.CalculateMedianPosition();
-        let newloose = self.collapseLooseEdgeList(pos);
+        let newloose = self.collapse_loose_edge_list(pos);
         self.loose = newloose;
 
     }
 
     pub fn PerformMeanRearrangement(&mut self){
         let pos = self.CalculateMeanPosition();
-        let newloose = self.collapseLooseEdgeList(pos);
+        let newloose = self.collapse_loose_edge_list(pos);
         self.loose = newloose;
 
     }
 
-    pub fn MedianHeuristic(&self) -> Vec<Vec<i32>>{
+   
+
+    pub fn CalculateCurrentCrossingCountWithSlowFertig(&self)-> u32{
+        let mut result = 0;
+        for i in 0..self.get_loose_order().len()-1{
+            for j in (i+1) .. self.get_loose_order().len(){
+                let countz = self.calc_local_cross_count_touple_between_positions(i, j);
+                let count = countz.0;
+                result += count
+            }
+        }
+        return result;
+    }
+
+
+    pub fn DrycleanPass(&mut self) -> bool{
+        let mut has_switched = false;
+        for i in 0..self.loose.len() -1 {
+            has_switched = has_switched || self.switch_with_neighbour_if_beneficial(i,Direction::Right);
+        }
+
+        return has_switched;
+    }
+
+    pub fn DryCleanCountOnSublist(&self,sublist: &mut Vec<(i32,usize)>) -> u32{
+        let mut result = 0;
+        for i in 0.. (sublist.len() -1){
+            let mut active = i;
+            for j in (i+1) .. sublist.len(){
+                let cr = self.calc_local_cross_count_touple_between_edgelists(sublist[i].1, sublist[j].1);
+                if(j-i == 1 && cr.1 < cr.0){
+
+                        result += cr.1;
+                        let temp = sublist[i];
+                        sublist[i] = sublist[j];
+                        sublist[j] = temp;
+
+                    
+                } else {
+                    result += cr.0;
+                }
+               
+            }
+
+        }
+        return result;
+    }
+
+    pub fn PermutateOnSublist(&self,sublist: &[(i32,usize)]) -> (bool,u32,Vec<(i32,usize)>){
+        let mut A: Vec<(i32, usize)> = sublist.to_vec();
+
+        let mut baseValue = self.CalculateCurrentCrossingCountWithSlowFertigOnSublist(&A);
+        if(baseValue == 0){
+            return (false,0,A);
+        }
+       
+        let mut BasePerm = A.clone();
+        let mut did_change = false;
+
+        let mut result = 0;
+        let len = sublist.len();
+        let mut p = vec![0; len];
+
+        let mut i = 1;
+        for k in 0..(1..=len).product(){
+            while i < len {
+                if(p[i]< i){
+                    let mut j = 0;
+                    if(p[i] % 2 == 1){
+                        j = p[i];
+                    }
+                    let temp = A[i];
+                    A[i] = A[j];
+                    A[j] = temp;
+                    p[i] += 1;
+                    i = 1;
+                }
+                else{
+                    p[i] = 0;
+                    i += 1;
+                }
+            }
+
+            let crossings = self.CalculateCurrentCrossingCountWithSlowFertigOnSublistToMax(&A,baseValue);
+            if(crossings < baseValue){
+                BasePerm = A.clone();
+                baseValue = crossings;
+                did_change = true;
+                if(crossings == 0){
+                    break;
+                }
+
+            }
+            if TERMINATION_SIGNAL.load(Ordering::Relaxed) {
+                eprintln!("abort");
+                break;
+            }
+        }
+  
+     
+        return (did_change,baseValue,BasePerm);
+    }
+
+//     The Counting QuickPerm Algorithm:
+
+//    let a[] represent an arbitrary list of objects to permute
+//    let N equal the length of a[]
+//    create an integer array p[] of size N to control the iteration       
+//    initialize p[0] to 0, p[1] to 0, p[2] to 0, ..., and p[N-1] to 0
+//    initialize index variable i to 1
+//    while (i < N) do {
+//       if (p[i] < i) then {
+//          if i is odd, then let j = p[i] otherwise let j = 0
+//          swap(a[j], a[i])
+//          increment p[i] by 1
+//          let i = 1 (reset i to 1)
+//       } // end if
+//       else { // (p[i] equals i)
+//          let p[i] = 0 (reset p[i] to 0)
+//          increment i by 1
+//       } // end else (p[i] equals i)
+//    } // end while (i < N)
+
+    pub fn CalculateCurrentCrossingCountWithSlowFertigOnSublist(&self,sublist:&Vec<(i32,usize)>)-> u32{
+        let mut result = 0;
+        for i in 0..sublist.len()-1{
+            for j in (i+1) .. sublist.len(){
+                result += self.calc_local_cross_count_touple_between_edgelists(sublist[i].1, sublist[j].1).0;
+            }
+        }
+        return result;
+    }
+
+    pub fn CalculateCurrentCrossingCountWithSlowFertigOnSublistToMax(&self,sublist:&Vec<(i32,usize)>,max:u32)-> u32{
+        let mut result = 0;
+        for i in 0..sublist.len()-1{
+            for j in (i+1) .. sublist.len(){
+                result += self.calc_local_cross_count_touple_between_edgelists(sublist[i].1, sublist[j].1).0;
+                if(result >= max){
+                    return result;
+                }
+            }
+        }
+        return result;
+    }
+
+
+    pub fn DrycleanerCrossingCount(&mut self) -> u32{
+
+        let mut result = 0;
+        for i in 0.. (self.loose.len() -1){
+            let mut active = i;
+            for j in (i+1) .. self.loose.len(){
+                let cr = self.calc_local_cross_count_touple_between_positions(i, j);
+                if(j-i == 1 && cr.1 < cr.0){
+
+                        result += cr.1;
+                        let temp = self.loose[i];
+                        self.loose[i] = self.loose[j];
+                        self.loose[j] = temp;
+
+                    
+                } else {
+                    result += cr.0;
+                }
+               
+            }
+
+        }
+        return result;
+    }
+
+    pub fn MedianHeuristic(&self)-> Vec<Vec<(i32,usize)>>{
+        return self.MedianHeuristicFromSublist(&self.loose); 
+    }
+
+   
+
+    pub fn MedianHeuristicFromSublist(&self,sublist: &Vec<(i32,usize)>) -> Vec<Vec<(i32,usize)>>{
         let resultsize = self.fixed.len();
-        let mut positionVector: Vec<Vec<i32>> = vec![Vec::new(); resultsize + 1 as usize];
-        for looseVertex in &self.loose{
+        let mut positionVector: Vec<Vec<(i32,usize)>> = vec![Vec::new(); resultsize + 1 as usize];
+        for looseVertex in sublist{
             let arraylen = self.adjcency_list[looseVertex.1].len();
             if(arraylen > 0){
                 let median = (arraylen - 1) / 2;
-                positionVector[self.CalculateMedian(looseVertex)].push(looseVertex.0)
+                positionVector[self.CalculateMedian(looseVertex)].push(*looseVertex)
             }
             else {
-                positionVector[resultsize].push(looseVertex.0)
+                positionVector[resultsize].push(*looseVertex)
             }
         }
         return positionVector;
     }
 
-    pub fn MeanHeuristic(&self) -> Vec<Vec<i32>>{
+    pub fn MeanHeuristic(&self)-> Vec<Vec<(i32,usize)>>{
+        return self.MeanHeuristicFromSublist(&self.loose); 
+    }
+
+    pub fn MeanHeuristicFromSublist(&self,sublist: &Vec<(i32,usize)>) -> Vec<Vec<(i32,usize)>>{
         let resultsize = self.fixed.len();
-        let mut positionVector: Vec<Vec<i32>> = vec![Vec::new(); resultsize + 1 as usize];
-        for looseVertex in &self.loose{
+        let mut positionVector: Vec<Vec<(i32,usize)>> = vec![Vec::new(); resultsize + 1 as usize];
+        for looseVertex in sublist{
             let arraylen = self.adjcency_list[looseVertex.1].len();
             if(arraylen > 0){
-                positionVector[self.CalculateMean(looseVertex)].push(looseVertex.0);
+                positionVector[self.CalculateMean(looseVertex)].push(*looseVertex);
             }
             else {
-                positionVector[resultsize].push(looseVertex.0)
+                positionVector[resultsize].push(*looseVertex)
             }
         }
         return positionVector;
     }
+
+    pub fn MedianMeanOnSublist(&self,sublist: &Vec<(i32,usize)>,verbose : bool,useDrycleaner : bool)-> Vec<(i32,usize)>{
+        let mean = self.collapse_loose_edge_list(self.MeanHeuristicFromSublist(sublist));
+        let median = self.collapse_loose_edge_list(self.MedianHeuristicFromSublist(sublist));
+   
+        let mean_count = self.CalculateCurrentCrossingCountWithSlowFertigOnSublist(&mean);
+        let median_count = self.CalculateCurrentCrossingCountWithSlowFertigOnSublist(&median);
+
+        let mut result = Vec::new();
+
+        if(median_count < mean_count){
+            if(verbose){
+                println!("Median < Mean with {} vs {}",median_count,mean_count);
+            }
+            result= median;
+        }
+        else {
+            if(verbose){
+                println!("Median > Mean with {} vs {}",median_count,mean_count);
+            }
+            result= mean;
+        }
+
+        if(useDrycleaner){
+            let cnt = self.DryCleanCountOnSublist(&mut result);
+            if(verbose){
+                println!("Count after Dryclean {}",cnt);
+            }
+        }
+        return result;
+    }
+
+   
+
+    pub fn MedianMean(&mut self,verbose : bool,useDrycleaner : bool) -> (Vec<i32>,u32){
+        self.PerformMeanRearrangement();
+        let mut mean_count = 0;
+        if useDrycleaner{
+            mean_count = self.DrycleanerCrossingCount();
+        }
+        else {
+            mean_count = self.CalculateCurrentCrossingCountWithSlowFertig();
+        }
+        let meanarrangement = self.get_loose_order();
+
+        self.PerformMedianRearrangement();
+        let mut median_count = 0;
+        if useDrycleaner{
+            median_count = self.DrycleanerCrossingCount();
+        }
+        else {
+            median_count = self.CalculateCurrentCrossingCountWithSlowFertig();
+        }
+
+        if(median_count < mean_count){
+            if(verbose){
+                println!("Median < Mean with {} vs {}",median_count,mean_count);
+            }
+            return (self.get_loose_order(),median_count);
+        }
+        else {
+            if(verbose){
+                println!("Median > Mean with {} vs {}",median_count,mean_count);
+            }
+            self.PerformMeanRearrangement();
+            return (self.get_loose_order(),mean_count);
+        }
+        
+    }
+
+
 
     pub fn median_random_greedy_switch_heuristic(&mut self, steps: i32) -> Vec<i32>{
 
@@ -270,7 +593,7 @@ impl SmartCOOInterconnectionMatrix{
 
     
 
-   pub fn collapseLooseEdgeList(&self,posVec : Vec<Vec<(i32,usize)>>) -> Vec<(i32,usize)>{
+   pub fn collapse_loose_edge_list(&self,posVec : Vec<Vec<(i32,usize)>>) -> Vec<(i32,usize)>{
         let mut result : Vec<(i32,usize)> = Vec::new();
         for posset in  posVec{
             if posset.len() > 0 {
@@ -282,17 +605,19 @@ impl SmartCOOInterconnectionMatrix{
         return result;
     }
 
-    pub fn collapse(&self,posVec : &Vec<Vec<i32>>) -> Vec<i32>{
+    pub fn collapse(&self,posVec : &Vec<Vec<(i32,usize)>>) -> Vec<i32>{
         let mut result : Vec<i32> = Vec::new();
         for posset in  posVec{
             if posset.len() > 0 {
                 for pos in posset{
-                    result.push(pos.clone());
+                    result.push(pos.0.clone());
                 }
             }
         }
         return result;
     }
+
+    
 
 
     
@@ -369,9 +694,14 @@ impl InterconnectionMatrix for SmartCOOInterconnectionMatrix{
         }
 
 
+        
         //these are sorted by fixed and then loose vertices so we have to sort them correctly.
         //we convert them because at this stage those coordinates are the same as in the respective sets
-        for edge in graph.edge_set.clone(){
+        //for edge in graph.edge_set.clone(){
+            
+        for i in (0..graph.edge_set.len()){
+            let edge = graph.edge_set[i].clone();
+            
             let (fixedIndex,looseIndex) = default_edgelabel_to_interconnection_coordinates(edge.0,edge.1,graph.number_of_fixed);
             adj_list[looseIndex].push(fixedIndex);
         }
@@ -431,32 +761,32 @@ impl InterconnectionMatrix for SmartCOOInterconnectionMatrix{
         self.loose[b] = temp;
     }
 
-    fn get_value_at(&self,fixedIndex:usize,looseIndex:usize)-> bool {
-        // let vecindex = self.loose[looseIndex].1;
+    // fn get_value_at(&self,fixedIndex:usize,looseIndex:usize)-> bool {
+    //     // let vecindex = self.loose[looseIndex].1;
 
-        // //you can do a binary search instead of forloop
-        // for point in &self.adjcency_list[vecindex]{
-        //     if(point == fixedIndex){
-        //         return true;
-        //     }
-        //     if point > &fixedIndex {
-        //         break;
-        //     }
-        // }
-        return false;
-    }
+    //     // //you can do a binary search instead of forloop
+    //     // for point in &self.adjcency_list[vecindex]{
+    //     //     if(point == fixedIndex){
+    //     //         return true;
+    //     //     }
+    //     //     if point > &fixedIndex {
+    //     //         break;
+    //     //     }
+    //     // }
+    //     return false;
+    // }
 
-    fn get_edge_set(&self) -> Vec<(i32,i32)> {
-        let mut result : Vec<(i32,i32)> = Vec::new();
+    // fn get_edge_set(&self) -> Vec<(i32,i32)> {
+    //     let mut result : Vec<(i32,i32)> = Vec::new();
 
-        // for looseVertex in &self.loose{
-        //     for fixedVertexIndex in &self.adjcency_list[looseVertex.1]{
-        //         result.push((*self.fixed[fixedVertexIndex],looseVertex.0));
-        //     }
-        // }
-        // result.sort_by(|(x0,x1),(y0,y1)| x0.cmp(y0));
-        return result
-    }
+    //     // for looseVertex in &self.loose{
+    //     //     for fixedVertexIndex in &self.adjcency_list[looseVertex.1]{
+    //     //         result.push((*self.fixed[fixedVertexIndex],looseVertex.0));
+    //     //     }
+    //     // }
+    //     // result.sort_by(|(x0,x1),(y0,y1)| x0.cmp(y0));
+    //     return result
+    // }
 
     fn to_string(&self) -> String {
         todo!()
@@ -467,104 +797,104 @@ impl InterconnectionMatrix for SmartCOOInterconnectionMatrix{
     }
 }
 
-impl InterconnectionMatrix for SimpleInterconnectionMatrix{
-    fn parse(graph:&GraphInput) -> Self {
-        let looseTemp= graph.loose_vertices.clone();
-        let fixedTemp= graph.fixed_vertices.clone();
+// impl InterconnectionMatrix for SimpleInterconnectionMatrix{
+//     fn parse(graph:&GraphInput) -> Self {
+//         let looseTemp= graph.loose_vertices.clone();
+//         let fixedTemp= graph.fixed_vertices.clone();
 
-        let mut array = vec![vec![false; looseTemp.len()]; fixedTemp.len()];
+//         let mut array = vec![vec![false; looseTemp.len()]; fixedTemp.len()];
 
-        for edge in &graph.edge_set {
-            let coord = default_edgelabel_to_interconnection_coordinates(edge.0,edge.1,graph.number_of_fixed);
-            array[coord.0 ][coord.1 ]=true;
-        }
+//         for edge in &graph.edge_set {
+//             let coord = default_edgelabel_to_interconnection_coordinates(edge.0,edge.1,graph.number_of_fixed);
+//             array[coord.0 ][coord.1 ]=true;
+//         }
 
-        let result = SimpleInterconnectionMatrix{ 
-             fixed:  fixedTemp, loose: looseTemp, matrix: array };
+//         let result = SimpleInterconnectionMatrix{ 
+//              fixed:  fixedTemp, loose: looseTemp, matrix: array };
         
-        return result;
+//         return result;
 
-    }
+//     }
 
-    fn get_fixed_order(&self) -> &Vec<i32> {
-        return &self.fixed;
-    }
+//     fn get_fixed_order(&self) -> &Vec<i32> {
+//         return &self.fixed;
+//     }
 
-    fn get_loose_order(&self) -> Vec<i32> {
-        return self.loose.clone();
-    }
-
-
-    fn switch_loose_by_vertexlabel(&mut self,a:i32,b:i32) {
-        let mut aIndex:usize = 0;
-        let mut bIndex:usize = 0;
-
-        let mut aindexFound = false;
-        let mut bindexFound = false;
+//     fn get_loose_order(&self) -> Vec<i32> {
+//         return self.loose.clone();
+//     }
 
 
-        for i  in 0..self.loose.len() {
-            if (aindexFound  && bindexFound){
-                self.switch_loose_by_position(aIndex, bIndex);
-                break;
-            }
-            if aindexFound ==false && self.loose[i] == a {
-                aIndex = i;
-                aindexFound = true;
-            }
-            if bindexFound ==false && self.loose[i] == b {
-                bIndex = i;
-                bindexFound = true;
-            }
-        }
-    }
+//     fn switch_loose_by_vertexlabel(&mut self,a:i32,b:i32) {
+//         let mut aIndex:usize = 0;
+//         let mut bIndex:usize = 0;
 
-    fn switch_loose_by_position(&mut self,a:usize,b:usize) {
-        //switch loose index
-        let temp = self.loose[a];
-        self.loose[a] = self.loose[b];
-        self.loose[b] = temp;
+//         let mut aindexFound = false;
+//         let mut bindexFound = false;
 
-        //Switch loose array
-        for i in 0..self.fixed.len(){
-            let temp = self.matrix[i][a];
-            self.matrix[i][a] = self.matrix[i][b];
-            self.matrix[i][b] = temp;
-        }
-    }
+
+//         for i  in 0..self.loose.len() {
+//             if (aindexFound  && bindexFound){
+//                 self.switch_loose_by_position(aIndex, bIndex);
+//                 break;
+//             }
+//             if aindexFound ==false && self.loose[i] == a {
+//                 aIndex = i;
+//                 aindexFound = true;
+//             }
+//             if bindexFound ==false && self.loose[i] == b {
+//                 bIndex = i;
+//                 bindexFound = true;
+//             }
+//         }
+//     }
+
+//     fn switch_loose_by_position(&mut self,a:usize,b:usize) {
+//         //switch loose index
+//         let temp = self.loose[a];
+//         self.loose[a] = self.loose[b];
+//         self.loose[b] = temp;
+
+//         //Switch loose array
+//         for i in 0..self.fixed.len(){
+//             let temp = self.matrix[i][a];
+//             self.matrix[i][a] = self.matrix[i][b];
+//             self.matrix[i][b] = temp;
+//         }
+//     }
     
-    fn to_string(&self) -> String {
-        let mut stringresult = String::new();
-        stringresult.push_str(&format!("    {:?}\r", self.loose));  
-        for i  in 0..self.fixed.len() {
-            stringresult.push_str( &format!("{:-<1$}",self.fixed[i],5));
-            let z : Vec<u32> =  self.matrix[i].iter().map(|&e| e as u32).collect();
-            stringresult.push_str( &format!("{:?}",z));
-            stringresult.push_str("\r");
-        }
-        return  stringresult;
-    }
+//     fn to_string(&self) -> String {
+//         let mut stringresult = String::new();
+//         stringresult.push_str(&format!("    {:?}\r", self.loose));  
+//         for i  in 0..self.fixed.len() {
+//             stringresult.push_str( &format!("{:-<1$}",self.fixed[i],5));
+//             let z : Vec<u32> =  self.matrix[i].iter().map(|&e| e as u32).collect();
+//             stringresult.push_str( &format!("{:?}",z));
+//             stringresult.push_str("\r");
+//         }
+//         return  stringresult;
+//     }
     
-    fn print(&self) {
-        print!("{}", self.to_string());
-    }
+//     fn print(&self) {
+//         print!("{}", self.to_string());
+//     }
     
-    fn get_value_at(&self,fixedIndex:usize,looseIndex:usize)-> bool {
-        self.matrix[fixedIndex][looseIndex]
-    }
+//     fn get_value_at(&self,fixedIndex:usize,looseIndex:usize)-> bool {
+//         self.matrix[fixedIndex][looseIndex]
+//     }
 
-    fn get_edge_set(&self) -> Vec<(i32,i32)> {
-        let mut result = Vec::new();
-        for i in 0..self.fixed.len(){
-            for j in 0..self.loose.len(){
-                if (self.matrix[i][j] == true){
-                    result.push((self.fixed[i],self.loose[j]));
-                }
+//     fn get_edge_set(&self) -> Vec<(i32,i32)> {
+//         let mut result = Vec::new();
+//         for i in 0..self.fixed.len(){
+//             for j in 0..self.loose.len(){
+//                 if (self.matrix[i][j] == true){
+//                     result.push((self.fixed[i],self.loose[j]));
+//                 }
 
-            }
+//             }
             
-        }
+//         }
 
-        return result;
-    }
-}
+//         return result;
+//     }
+// }
