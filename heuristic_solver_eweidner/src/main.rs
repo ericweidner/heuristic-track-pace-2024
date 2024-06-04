@@ -26,10 +26,6 @@ pub static TERMINATION_SIGNAL: AtomicBool = AtomicBool::new(false);
 
 
 fn main() -> io::Result<()>{
-    let args: Vec<String> = env::args().collect();
-
-
-
     //Load
     let stdin = std::io::stdin(); 
     let mut lines : Vec<String> = Vec::new();
@@ -46,17 +42,18 @@ fn main() -> io::Result<()>{
         }
     });
 
-    let mut interconnection;
-    {
-        let input = GraphInput::parse_from_lines(&lines, false, false);
-        interconnection =  SmartCOOInterconnectionMatrix::parse(&input);
-    }
+    // let mut interconnection;
+
+    // {
+    //     let input = GraphInput::parse_from_lines(&lines, false, false);
+    //     interconnection =  SmartCOOInterconnectionMatrix::parse(&input);
+    // }
 
     
         
    
     
-    let result = heuristic_solver::Solve(&mut interconnection, heuristic_solver::LocalSearchStrat::Interleaved5_2);
+    let result = Handle(lines);
 
 
 
@@ -79,6 +76,19 @@ fn main() -> io::Result<()>{
 
 
     Ok(())
+}
+
+fn Handle(input:Vec<String>) -> Vec<i32>{
+    let mut interconnection;
+
+    {
+        let input = GraphInput::parse_from_lines(&input, false, false);
+        interconnection =  SmartCOOInterconnectionMatrix::parse(&input);
+    }
+
+    let result = heuristic_solver::solve(&mut interconnection, heuristic_solver::LocalSearchStrat::Interleaved5_2);
+    return result;
+
 }
 
 

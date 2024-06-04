@@ -17,4 +17,5 @@ pub(crate) fn lines_from_file(filename: impl AsRef<Path>) -> Vec<String> {
 pub enum Direction {
     Left,
     Right,
+    Nowhere
 }

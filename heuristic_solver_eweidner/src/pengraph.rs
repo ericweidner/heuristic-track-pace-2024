@@ -75,9 +75,9 @@ impl PenaltyGraph{
                     vert[j].InNeighbours.push((i,crossings.1 - crossings.0));
                     vert[i].OutNeighbours.push((j,crossings.1 - crossings.0));
                 }
-            }
-            if TERMINATION_SIGNAL.load(Ordering::Relaxed) {
-                return None;
+                if TERMINATION_SIGNAL.load(Ordering::Relaxed) {
+                    return None;
+                }
             }
 
             
@@ -115,11 +115,13 @@ impl PenaltyGraph{
                 result_hashmap.get_mut(&a.1).unwrap().push(a.0);
             }
         }
+        
 
 
 
-
-        return result_hashmap.values().cloned().collect();
+        return result_hashmap.into_iter()
+                            .map(|(_id, x)| x)
+                            .collect();
     }
 
     pub fn CondenseGraph(&self) -> PenaltyGraph{
@@ -202,9 +204,6 @@ impl PenaltyGraph{
                         newVertices[ComponentPos].InNeighbours.push((mapped.clone(),inVert.1.clone()));
                         already_inserted_in.insert(mapped.clone());
                     }
-                    else{
-                        let k = 9;
-                    }
                 }
 
                 let mut already_inserted_out :HashSet<usize> = HashSet::new();
@@ -213,9 +212,6 @@ impl PenaltyGraph{
                     if !already_inserted_out.contains(&mapped){
                         newVertices[ComponentPos].OutNeighbours.push((mapped.clone(),outVert.1.clone()));
                         already_inserted_out.insert(mapped);
-                    }
-                    else{
-                        let k = 9;
                     }
                 }
             }

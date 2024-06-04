@@ -8,6 +8,9 @@ edition = "2021"
 [profile.submit]
 inherits = 'release'
 
+[target.x86_64-unknown-linux-musl]
+linker = "/opt/homebrew/bin/x86_64-unknown-linux-musl-gcc"
+
 
 [dependencies]
 rand = "*"

@@ -486,7 +486,7 @@ impl SmartCOOInterconnectionMatrix{
         return positionVector;
     }
 
-    pub fn MedianMeanOnSublist(&self,sublist: &Vec<(i32,usize)>,verbose : bool,useDrycleaner : bool)-> Vec<(i32,usize)>{
+    pub fn MedianMeanOnSublist(&self,sublist: &Vec<(i32,usize)>,verbose : bool,useDrycleaner : bool)-> (u32,Vec<(i32,usize)>){
         let mean = self.collapse_loose_edge_list(self.MeanHeuristicFromSublist(sublist));
         let median = self.collapse_loose_edge_list(self.MedianHeuristicFromSublist(sublist));
    
@@ -494,27 +494,30 @@ impl SmartCOOInterconnectionMatrix{
         let median_count = self.CalculateCurrentCrossingCountWithSlowFertigOnSublist(&median);
 
         let mut result = Vec::new();
+        let mut bestcount;
 
         if(median_count < mean_count){
             if(verbose){
                 println!("Median < Mean with {} vs {}",median_count,mean_count);
             }
             result= median;
+            bestcount = median_count;
         }
         else {
             if(verbose){
                 println!("Median > Mean with {} vs {}",median_count,mean_count);
             }
             result= mean;
+            bestcount = mean_count
         }
 
         if(useDrycleaner){
-            let cnt = self.DryCleanCountOnSublist(&mut result);
+            bestcount = self.DryCleanCountOnSublist(&mut result);
             if(verbose){
-                println!("Count after Dryclean {}",cnt);
+                println!("Count after Dryclean {}",bestcount);
             }
         }
-        return result;
+        return (bestcount,result);
     }
 
    
