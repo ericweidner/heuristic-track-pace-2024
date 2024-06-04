@@ -46,11 +46,13 @@ fn main() -> io::Result<()>{
         }
     });
 
+    let mut interconnection;
+    {
+        let input = GraphInput::parse_from_lines(&lines, false, false);
+        interconnection =  SmartCOOInterconnectionMatrix::parse(&input);
+    }
 
-
-
-    let input = GraphInput::parse_from_lines(&lines, false, false);
-    let mut    interconnection = SmartCOOInterconnectionMatrix::parse(&input);
+    
         
    
     
