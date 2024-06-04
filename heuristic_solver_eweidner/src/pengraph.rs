@@ -202,7 +202,7 @@ impl PenaltyGraph{
                     let mapped = positionMap.get(&inVert.0).unwrap().clone();
                     if !already_inserted_in.contains(&mapped){
                         newVertices[ComponentPos].InNeighbours.push((mapped.clone(),inVert.1.clone()));
-                        already_inserted_in.insert(mapped.clone());
+                        already_inserted_in.insert(mapped);
                     }
                 }
 
@@ -233,7 +233,7 @@ impl PenaltyGraph{
     
                             if !already_inserted_in.contains(&mapped){
                                 newVertices[ComponentPos].InNeighbours.push((mapped.clone(),inVert.1.clone()));
-                                already_inserted_in.insert(mapped.clone());
+                                already_inserted_in.insert(mapped);
                             }
                         }
                        
@@ -245,7 +245,7 @@ impl PenaltyGraph{
                             let mapped = positionMap.get(&outVert.0).unwrap().clone();
                             if !already_inserted_out.contains(&mapped){
                                 newVertices[ComponentPos].OutNeighbours.push((mapped.clone(),outVert.1.clone()));
-                                already_inserted_out.insert(mapped.clone());
+                                already_inserted_out.insert(mapped);
                             }
                         }
                     }
