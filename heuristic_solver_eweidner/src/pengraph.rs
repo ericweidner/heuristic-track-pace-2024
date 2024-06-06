@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet}, result, f32::INFINITY, path::Component, cmp::{self}, sync::atomic::Ordering};
 
 use rand::Rng;
-use crate::{utils, TERMINATION_SIGNAL};
+use crate::{utils, TERMINATION_SIGNAL, should_terminate};
 
 use crate::{problem::GraphInput, utils::Direction, interconnection::SmartCOOInterconnectionMatrix};//, heuristics::Heuristics};
 
@@ -75,7 +75,7 @@ impl PenaltyGraph{
                     vert[j].InNeighbours.push((i,crossings.1 - crossings.0));
                     vert[i].OutNeighbours.push((j,crossings.1 - crossings.0));
                 }
-                if TERMINATION_SIGNAL.load(Ordering::Relaxed) {
+                if should_terminate() {
                     return None;
                 }
             }
@@ -90,16 +90,22 @@ impl PenaltyGraph{
 
     }
 
-    pub fn generateStronglyConnectedComponents(&self) -> Vec<Vec<usize>>{
+    pub fn generateStronglyConnectedComponents(&self) -> Option<Vec<Vec<usize>>>{
         let mut vertices:HashSet<usize> = HashSet::new();
         let mut VisitingList:Vec<usize> = Vec::new();
         let mut tempresult: HashMap<usize,usize> = HashMap::new();
 
         for vertex in 0..self.vertices.len() {
+            if should_terminate() {
+                return None;
+            }
             self.Visit(&mut VisitingList, &mut vertices, vertex);
         }
         
         while !VisitingList.is_empty() {
+            if should_terminate() {
+                return None;
+            }
             let u = VisitingList.pop().unwrap();
             self.Assign(&mut tempresult, u, u);
         }
@@ -119,16 +125,22 @@ impl PenaltyGraph{
 
 
 
-        return result_hashmap.into_iter()
+        return Some(result_hashmap.into_iter()
                             .map(|(_id, x)| x)
-                            .collect();
+                            .collect());
     }
 
-    pub fn CondenseGraph(&self) -> PenaltyGraph{
-        let scc = self.generateStronglyConnectedComponents();
+    pub fn CondenseGraph(&self) -> Option<PenaltyGraph>{
+        eprintln!("Generating SCC...");
+        let scc_option = self.generateStronglyConnectedComponents();
+        if(scc_option.is_none()){
+            return None;
+        }
+        let scc = scc_option.unwrap();
         let mut positionMap:HashMap<usize,usize> = HashMap::new();
         let mut newVertices:Vec<PenaltyGraphVertex> = Vec::new();
 
+        eprintln!("Condensing...");
         
         //Add all new vertivces and fill translationMap
         for ComponentPos in 0..scc.len() {
@@ -144,6 +156,10 @@ impl PenaltyGraph{
                 positionMap.insert(component[0], ComponentPos);
             }
             else {
+                if should_terminate() {
+                    return None;
+                }
+
                 let mut tempPositionMap :HashMap<usize,usize> = HashMap::new();
                 let mut tempVec : Vec<PenaltyGraphVertex> = Vec::new();
                 for subcomponentindex in 0..component.len(){
@@ -189,6 +205,7 @@ impl PenaltyGraph{
         }
 
         //reroute all the edges V2
+        eprintln!("Rerouting Edges...");
         
 
         //reroute all Edges
@@ -216,6 +233,8 @@ impl PenaltyGraph{
                 }
             }
             else {
+                
+
                 let mut already_inserted_in :HashSet<usize> = HashSet::new();
                 let mut already_inserted_out :HashSet<usize> = HashSet::new();
                 let mut internalVertices : HashSet<usize> = HashSet::new();
@@ -225,7 +244,9 @@ impl PenaltyGraph{
                 }
 
                 for condcomp in 0..component.len(){
-
+                    if should_terminate() {
+                        return None;
+                    }
                     let original_vertex = &self.vertices[component[condcomp]];
                     for inVert in &original_vertex.InNeighbours {
                         if(!internalVertices.contains(&inVert.0)){
@@ -256,7 +277,7 @@ impl PenaltyGraph{
         }
 
 
-        return PenaltyGraph{vertices:newVertices };
+        return Some(PenaltyGraph{vertices:newVertices });
     }
 
 // L ← Empty list that will contain the sorted elements
@@ -274,7 +295,7 @@ impl PenaltyGraph{
 //     return error   (graph has at least one cycle)
 // else 
 //     return L   (a topologically sorted order)
-    pub fn SortWithKahnsAlgorithm(&self) -> Vec<usize>{
+    pub fn SortWithKahnsAlgorithm(&self) -> Option<Vec<usize>>{
         let mut result:Vec<usize> = Vec::new();
         let mut removedVerts:HashSet<usize> = HashSet::new();
 
@@ -288,6 +309,9 @@ impl PenaltyGraph{
         }
 
         while startNodes.len() > 0{
+            if should_terminate() {
+                return None;
+            }
             let tempNode = startNodes.pop().unwrap();
             result.push(tempNode);
             removedVerts.insert(tempNode);
@@ -313,7 +337,7 @@ impl PenaltyGraph{
 
 
 
-        return result;
+        return Some(result);
     }
 
 
