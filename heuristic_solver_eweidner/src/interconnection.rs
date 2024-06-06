@@ -45,6 +45,8 @@ pub(crate) struct SmartCOOInterconnectionMatrix{
     //Matrix in COO Format daved as edgelist for the loose Vertices sorted by coordinate 
     pub adjcency_list: Vec<Vec<usize>>,
 
+    pub average_loose_vertex_degree : usize
+
 }
 
 impl SmartCOOInterconnectionMatrix{
@@ -475,8 +477,6 @@ impl SmartCOOInterconnectionMatrix{
     }
 
 
-   
-
     pub fn mean_heuristic_from_sublist(&self,sublist: &Vec<(i32,usize)>) -> Vec<Vec<(i32,usize)>>{
         let resultsize = self.fixed.len();
         let mut positionVector: Vec<Vec<(i32,usize)>> = vec![Vec::new(); resultsize + 1 as usize];
@@ -721,6 +721,7 @@ impl InterconnectionMatrix for SmartCOOInterconnectionMatrix{
     fn parse(graph:&GraphInput) -> Self where Self: Sized {
         let fixedset = graph.fixed_vertices.clone();
 
+        let avg_loose_degr = graph.number_of_loose / graph.number_of_edges;
         let mut loose_temp: Vec<(i32,usize)> = Vec::new();
         let mut adj_list = Vec::new();
 
@@ -746,7 +747,7 @@ impl InterconnectionMatrix for SmartCOOInterconnectionMatrix{
         }
         
         let result = SmartCOOInterconnectionMatrix{ 
-            fixed:  fixedset, loose: loose_temp, adjcency_list: adj_list };
+            fixed:  fixedset, loose: loose_temp, adjcency_list: adj_list ,average_loose_vertex_degree:avg_loose_degr as usize};
        
        return result;
 

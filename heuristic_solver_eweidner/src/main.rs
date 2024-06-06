@@ -7,7 +7,6 @@ use std::{
      
 };
 use std::{collections::HashMap, result, f32::INFINITY};
-
 use coarsetime::Instant;
 use interconnection::{SmartCOOInterconnectionMatrix, InterconnectionMatrix};
 use pengraph::PenaltyGraph;
@@ -22,16 +21,17 @@ mod heuristic_solver;
 
 use peak_alloc::PeakAlloc;
 
+//Tracks memory usage
 #[global_allocator]
 pub static PEAK_ALLOC: PeakAlloc = PeakAlloc;
 
-//use rand::Rng;
-
-
+//Termination Signal
 pub static TERMINATION_SIGNAL: AtomicBool = AtomicBool::new(false);
 
+//Cutoff value for big problem instances
 pub static INSTANCE_SIZE_CUTOFF: usize = 50000;
 
+//Global timer for time-based interruption
 pub static mut  START: Option<Instant> = None ;
 
 fn should_terminate()->bool{
@@ -45,9 +45,13 @@ fn should_terminate()->bool{
 fn main() -> io::Result<()>{
     //Load
     eprintln!("Starting");
+     //Det local timer
+     let start = Instant::now();
 
+    //Set globel start time
     unsafe { START = Some(Instant::now()) } ;
    
+    //Load problem input from stdin
     let stdin = std::io::stdin(); 
     let mut lines : Vec<String> = Vec::new();
     for line in stdin.lock().lines() {
@@ -73,11 +77,30 @@ fn main() -> io::Result<()>{
     
         
    
+    //Solve
+
+
+    let mut interconnection;
     
-    let result = Handle(lines);
+   
+
+    {
+        //eprintln!("Parsing from input...");
+        //Parse input
+        let input = GraphInput::parse_from_lines(&lines, false, false);
+        //eprintln!("Parsing Interconnectionmatrix....");
+        //Create interconnection matrix
+        interconnection =  SmartCOOInterconnectionMatrix::parse(&input);
+    }
+    
+    //Call solver
+    let result = heuristic_solver::solve(&mut interconnection);
+    
+   
 
 
-
+   
+   
     
 
     // let file = File::create(outputpath)?;
@@ -86,40 +109,20 @@ fn main() -> io::Result<()>{
 
     let mut string = String::new();
 
-
+    //Print Solution
     for res in result{
         println!("{}", res);
         //string.push_str(&format!("{}\n",res));
     }
-
-    //filewriter.write_all(string.as_bytes());
-
-
-
-    Ok(())
-}
-
-fn Handle(input:Vec<String>) -> Vec<i32>{
-    let mut interconnection;
-    
-    let start = Instant::now();
-
-    {
-        //eprintln!("Parsing from input...");
-        let input = GraphInput::parse_from_lines(&input, false, false);
-        //eprintln!("Parsing Interconnectionmatrix....");
-        interconnection =  SmartCOOInterconnectionMatrix::parse(&input);
-    }
-    
-    let result = heuristic_solver::solve(&mut interconnection);
-    
+    //Print Stats
     let peak_mem = PEAK_ALLOC.peak_usage_as_gb();
     eprintln!("The max amount that was used {}", peak_mem);
     let seconds = start.elapsed().as_secs();
     eprintln!("The Duration was {} Seconds", seconds);
-    return result;
-
+    Ok(())
 }
+
+
 
 
 
