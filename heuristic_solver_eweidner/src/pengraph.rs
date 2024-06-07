@@ -139,7 +139,6 @@ impl PenaltyGraph{
      * Makes the graph acyclic by condensing all strongly connected components into a single vertex.
      */
     pub fn CondenseGraph(&self) -> Option<PenaltyGraph>{
-        eprintln!("Generating SCC...");
         let scc_option = self.generateStronglyConnectedComponents();
         if(scc_option.is_none()){
             return None;
@@ -150,7 +149,7 @@ impl PenaltyGraph{
 
         eprintln!("Condensing...");
         
-        //Add all new vertivces and fill translationMap
+        //Add all new vertices and fill translationMap.
         for ComponentPos in 0..scc.len() {
             let component = &scc[ComponentPos];
             if component.len() == 1{
@@ -213,7 +212,7 @@ impl PenaltyGraph{
         }
 
 
-        //reroute all Edges
+        //Reroute all Edges
 
         for ComponentPos in 0..scc.len() {
             let component = &scc[ComponentPos];
@@ -286,7 +285,7 @@ impl PenaltyGraph{
 
 
     /**
-     * Sorts Acyclic Penalty graph topologicly 
+     * Sorts an acyclic penalty graph topologically. 
      * (Kahn`s algorithm)
      */
     pub fn sort_with_kahns_algorithm(&self) -> Option<Vec<usize>>{
@@ -333,7 +332,7 @@ impl PenaltyGraph{
    
 
     /**
-     * Sorts all Vertices of a penalty graph according to a given heuristic
+     * Sorts all vertices of a penalty graph according to a given heuristic.
      */
     pub fn sort_penalty_graph_with_heuristic(& self,heur:VertexArcBaseHeuristic)->Vec<&PenaltyGraphVertex>{
         let mut head:Vec<&PenaltyGraphVertex> = Vec::new();
