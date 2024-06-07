@@ -1,21 +1,24 @@
-use std::{collections::{HashMap, HashSet}, result, f32::INFINITY, path::Component, cmp::{self}, sync::atomic::Ordering};
+use std::collections::{HashMap, HashSet};
 
-use rand::Rng;
-use crate::{utils, TERMINATION_SIGNAL, should_terminate};
+use crate::should_terminate;
 
-use crate::{problem::GraphInput, utils::Direction, interconnection::SmartCOOInterconnectionMatrix};//, heuristics::Heuristics};
+use crate::interconnection::COOInterconnectionMatrix;
 
 pub(crate) struct PenaltyGraph{
     pub vertices: Vec<PenaltyGraphVertex>,
 }
 
+/**
+ * Available penalty graph base heuristics.
+ */
 pub enum VertexArcBaseHeuristic {
-    Eades,
-    EadesForward,
+    Eades, //Heuristic used in https://doi.org/10.1016/0020-0190(93)90079-O
+    //And Variations:
+    EadesForward, 
     EadesForward_Weighted,
     EadesBackward,
     EadesBackward_Weighted,
-    Baharev
+    Baharev //Adapted version of a simple heuristic mentioned in https://doi.org/10.1145/3446429
 }
 
 
@@ -52,7 +55,7 @@ impl PenaltyGraphVertex{
 }
 
 impl PenaltyGraph{
-    pub fn parse(input : &SmartCOOInterconnectionMatrix) -> Option<PenaltyGraph>{
+    pub fn parse(input : &COOInterconnectionMatrix) -> Option<PenaltyGraph>{
         let mut vert = Vec::new();
         let looslen = input.loose.len();
         let mut index = 0;
@@ -90,6 +93,11 @@ impl PenaltyGraph{
 
     }
 
+
+    /**
+     * Generates all the strongly connected components of the Penalty graph
+     * (Kosaraju's algorithm)
+     */
     pub fn generateStronglyConnectedComponents(&self) -> Option<Vec<Vec<usize>>>{
         let mut vertices:HashSet<usize> = HashSet::new();
         let mut VisitingList:Vec<usize> = Vec::new();
@@ -121,15 +129,15 @@ impl PenaltyGraph{
                 result_hashmap.get_mut(&a.1).unwrap().push(a.0);
             }
         }
-        
-
-
 
         return Some(result_hashmap.into_iter()
                             .map(|(_id, x)| x)
                             .collect());
     }
 
+    /**
+     * Makes the graph acyclic by condensing all strongly connected components into a single vertex.
+     */
     pub fn CondenseGraph(&self) -> Option<PenaltyGraph>{
         eprintln!("Generating SCC...");
         let scc_option = self.generateStronglyConnectedComponents();
@@ -204,9 +212,6 @@ impl PenaltyGraph{
             }
         }
 
-        //reroute all the edges V2
-        eprintln!("Rerouting Edges...");
-        
 
         //reroute all Edges
 
@@ -276,26 +281,15 @@ impl PenaltyGraph{
             }
         }
 
-
         return Some(PenaltyGraph{vertices:newVertices });
     }
 
-// L ← Empty list that will contain the sorted elements
-// S ← Set of all nodes with no incoming edge
 
-// while S is not empty do
-//     remove a node n from S
-//     add n to L
-//     for each node m with an edge e from n to m do
-//         remove edge e from the graph
-//         if m has no other incoming edges then
-//             insert m into S
-
-// if graph has edges then
-//     return error   (graph has at least one cycle)
-// else 
-//     return L   (a topologically sorted order)
-    pub fn SortWithKahnsAlgorithm(&self) -> Option<Vec<usize>>{
+    /**
+     * Sorts Acyclic Penalty graph topologicly 
+     * (Kahn`s algorithm)
+     */
+    pub fn sort_with_kahns_algorithm(&self) -> Option<Vec<usize>>{
         let mut result:Vec<usize> = Vec::new();
         let mut removedVerts:HashSet<usize> = HashSet::new();
 
@@ -331,19 +325,17 @@ impl PenaltyGraph{
                     startNodes.push(outneighbour.0)
                 }
             }
-
         }
-
-
-
-
         return Some(result);
     }
 
 
    
 
-    pub fn sort_eads_heuristic(& self,heur:VertexArcBaseHeuristic)->Vec<&PenaltyGraphVertex>{
+    /**
+     * Sorts all Vertices of a penalty graph according to a given heuristic
+     */
+    pub fn sort_penalty_graph_with_heuristic(& self,heur:VertexArcBaseHeuristic)->Vec<&PenaltyGraphVertex>{
         let mut head:Vec<&PenaltyGraphVertex> = Vec::new();
         let mut tail:Vec<&PenaltyGraphVertex> = Vec::new();
 
@@ -356,13 +348,6 @@ impl PenaltyGraph{
             }else if vertex.OutNeighbours.len() == 0 {
                 tail.push(vertex);
             }else {
-                // let mut weight = 0;
-                // // for inN in vertex.InNeighbours  {
-                // //     weight += inN.1;
-                // // }
-                // for outN in vertex.OutNeighbours  {
-                //     weight += outN.1;
-                // }
                 middle.push(vertex);
             }
         }
@@ -388,7 +373,6 @@ impl PenaltyGraph{
             }
             VertexArcBaseHeuristic::Baharev => {
                 middle.sort_by_key(|v| ((v.OutNeighbours.len() as f32 / v.InNeighbours.len() as f32 ) * 1000 as f32) as i32);
-                //middle.reverse();
             },
         }
 
@@ -405,21 +389,10 @@ impl PenaltyGraph{
         return head;
 
     }
-    // pub fn CheckIfConedensationIsStartNode(&self,input : &Vec<usize>) -> bool{
-    //     let CheckHashset: HashSet<usize> = HashSet::from_iter(input.iter().cloned());
 
-    //     for vertex in input {
-    //         for inneigh in &self.vertices[*vertex].InNeighbours{
-    //             if !CheckHashset.contains(&inneigh.0) {
-    //                 return false;
-    //             }
-    //         }
-    //     }
-
-    //     return true;
-        
-    // }
-
+    /**
+     * Visit subroutine for  Kosaraju's algorithm
+     */
     fn Visit(&self, VisitingList:&mut Vec<usize>, vertice_hash_set:&mut HashSet<usize>,visiting_vertex : usize){
         if !vertice_hash_set.contains(&visiting_vertex) {
             vertice_hash_set.insert(visiting_vertex);
@@ -430,6 +403,9 @@ impl PenaltyGraph{
         }
     }
 
+    /**
+     * Assign subroutine for  Kosaraju's algorithm
+     */
     fn Assign(&self,Result: &mut HashMap<usize,usize>,u:usize,root:usize){
         if !Result.contains_key(&u) {
             Result.insert(u, root);

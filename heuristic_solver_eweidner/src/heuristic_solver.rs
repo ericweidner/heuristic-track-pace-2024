@@ -1,65 +1,59 @@
 
 
-use crate::{pengraph::{PenaltyGraph, VertexArcBaseHeuristic}, interconnection::SmartCOOInterconnectionMatrix, INSTANCE_SIZE_CUTOFF, PEAK_ALLOC, should_terminate};
+use crate::{pengraph::{PenaltyGraph, VertexArcBaseHeuristic}, interconnection::COOInterconnectionMatrix, INSTANCE_SIZE_CUTOFF, PEAK_ALLOC, should_terminate};
 
 
+/**
+ * Local search strats
+ */
 pub enum LocalSearchStrat {
     Interleaved5_2,
     Degree,
     GreedySwitch,
-    GreedySwitch_KStep,
+    GreedySwitchKstep,
 }
 
 
 
+pub(crate) fn solve(interconnection_matrix:&mut COOInterconnectionMatrix)-> Vec<i32>{
 
-pub(crate) fn solve(interconnection_matrix:&mut SmartCOOInterconnectionMatrix)-> Vec<i32>{
-    //eprintln!("Extracting orphans...");
     //Extracting orphans (vertices with degree = 0)
     let mut orphans = interconnection_matrix.extract_orphan_nodes();
-    //eprintln!("Calculating fallback result...");
+
     //Calculate fallback result
     let temp_list = interconnection_matrix.mean_heuristic();
-    //eprintln!("Collapsing fallback result...");
     let emergency_result = interconnection_matrix.collapse_loose_edge_list(temp_list, crate::interconnection::TieBreaker::Median);
 
-
-    // let penalty_graph_option = PenaltyGraph::parse(&interconnection_matrix);
-    // if(penalty_graph_option.is_none()){
-    //     return emergency_result;
-    // }
 
     let mut intermediate_result;
     {
 
         //If instance is so big that it might break the memory limit default to emergency result
         if(interconnection_matrix.loose.len() > INSTANCE_SIZE_CUTOFF){
-            eprintln!("Instance too large, executing Plan B...");
             intermediate_result = vec![emergency_result]; 
         }else{
-            //let penalty_graph = penalty_graph_option.unwrap();
-            //Solve Base heuristic. If it gets interrupted (SIGTERM or memory), default to emergency result)
+            //Solve penalty graph base-heuristic. If it gets interrupted (SIGTERM or memory), default to emergency result)
             let option = solve_base_heuristic_on_penalty_graph( &interconnection_matrix);
             match option {
                 Some(_) => intermediate_result = option.unwrap(),
                 None => intermediate_result = vec![emergency_result],
             }
         }
-
-        
     }
 
-    //Perform local search 
-    eprintln!("GreedySwitch...");
+    //Perform initial local search 
     local_search(&mut intermediate_result, interconnection_matrix, LocalSearchStrat::GreedySwitch,0);
     let mut continue_search = true;
+
+    //perform a set of increasing i-step-greedy searches followed by a greedyswitch search on the intermediate result.
+    //Stops only if for all parameters no benefitial changes where perfomed.
     while continue_search {
         continue_search = false;
         for i in 2..30{
             if should_terminate() {
                 break;
             }
-            continue_search = continue_search || local_search(&mut intermediate_result, interconnection_matrix, LocalSearchStrat::GreedySwitch_KStep,i);
+            continue_search = continue_search || local_search(&mut intermediate_result, interconnection_matrix, LocalSearchStrat::GreedySwitchKstep,i);
         }
         if should_terminate() {
             break;
@@ -67,7 +61,9 @@ pub(crate) fn solve(interconnection_matrix:&mut SmartCOOInterconnectionMatrix)->
         continue_search = continue_search || local_search(&mut intermediate_result, interconnection_matrix, LocalSearchStrat::GreedySwitch,0);
     }
     
+    //Generates result
     let mut result :Vec<i32> = Vec::new();
+    //reattach orphans
     result.append(&mut orphans.into_iter().map(|x| x.0).collect());
     for sublist in &intermediate_result{
         result.append(&mut sublist.clone().into_iter().map(|x| x.0).collect())
@@ -77,7 +73,11 @@ pub(crate) fn solve(interconnection_matrix:&mut SmartCOOInterconnectionMatrix)->
     return result;
 }
 
-pub(crate) fn local_search(intermediate_result:&mut  Vec<Vec<(i32,usize)>>,interconnection_matrix:&mut SmartCOOInterconnectionMatrix,strategy:LocalSearchStrat,param : usize)->bool{
+
+/**
+ * Perfoms a local search on each block of the intermediate result. Returns true if vertices have been switched.
+ */
+pub(crate) fn local_search(intermediate_result:&mut  Vec<Vec<(i32,usize)>>,interconnection_matrix:&mut COOInterconnectionMatrix,strategy:LocalSearchStrat,param : usize)->bool{
     let mut did_change = true;
     let mut counter = 0;
     while did_change {
@@ -86,19 +86,21 @@ pub(crate) fn local_search(intermediate_result:&mut  Vec<Vec<(i32,usize)>>,inter
         if should_terminate() {
             break;
         }
+
         for i in 0..intermediate_result.len(){
             if should_terminate() {
                 break;
             }
+
             if(intermediate_result[i].len() > param){
                 let  sublist = &mut intermediate_result[i];
 
-                
+                //Decide which local search strategy to use
                 match strategy {
                     LocalSearchStrat::Interleaved5_2 => todo!(), //return interleave_local_search(sublist,interconnection_matrix,5,2),
                     LocalSearchStrat::Degree => todo!(),//did_change = high_degree_only_greedy_switch(sublist,interconnection_matrix),
                     LocalSearchStrat::GreedySwitch => did_change =  greedy_switch(sublist,interconnection_matrix),
-                    LocalSearchStrat::GreedySwitch_KStep => did_change = greedy_switch_k_step(sublist,interconnection_matrix,param),
+                    LocalSearchStrat::GreedySwitchKstep => did_change = greedy_switch_k_step(sublist,interconnection_matrix,param),
                 }
             }
         }      
@@ -109,8 +111,11 @@ pub(crate) fn local_search(intermediate_result:&mut  Vec<Vec<(i32,usize)>>,inter
 }
 
 
-//Performs one pass of the greedy switch heuristic over the sublist
-pub(crate) fn greedy_switch(sublist:&mut Vec<(i32,usize)>,interconnection_matrix:&SmartCOOInterconnectionMatrix) -> bool{
+
+/**
+ * Performs one pass of the greedy switch heuristic over the sublist
+ */
+pub(crate) fn greedy_switch(sublist:&mut Vec<(i32,usize)>,interconnection_matrix:&COOInterconnectionMatrix) -> bool{
     let mut switched = false;
     for i in 0.. (sublist.len() -1){
         if should_terminate() {
@@ -130,59 +135,11 @@ pub(crate) fn greedy_switch(sublist:&mut Vec<(i32,usize)>,interconnection_matrix
 }
 
 
-
-
-// pub(crate) fn greedy_local_step_search(interconnection_matrix:&SmartCOOInterconnectionMatrix,sublist:&mut Vec<(i32,usize)>,index:usize,max_step:u32){
-    
-//     let (stay,switchright) = interconnection_matrix.calc_local_cross_count_touple_between_edgelists(sublist[index].1, sublist[index+1].1);
-//     let (stay,switchleft) = interconnection_matrix.calc_local_cross_count_touple_between_edgelists(sublist[index-1].1, sublist[index].1);
-//     let mut direction = Direction::Nowhere;
-
-//     if(sublist.len())
-
-//     for i in 2..max_step{
-//         let switch_right = should_switch_between_indices(interconnection_matrix, sublist, index, index+i as usize);
-//         let switch_left = should_switch_between_indices(interconnection_matrix, sublist, index-i as usize, index as usize);
-        
-//         if(switch_right){
-//             direction = Direction::Right;
-
-//             break
-//         }
-//         else if switch_left {
-//             direction = Direction::Left;
-//             let temp = sublist[index-i];
-//             sublist[index-i as usize] = sublist[index];
-//             sublist[index] = temp;
-//         }
-//     }
-
-//     if(direction == Direction::Nowhere){
-//         return;
-//     }
-//     else {
-//         for i in 2..max_step{
-//             if(direction == Direction::Left){
-//                 if(should_switch_between_indices(interconnection_matrix, sublist, index, index+i as usize){
-
-//                 }
-//             }
-//             else {
-//                 if(should_switch_between_indices(interconnection_matrix, sublist, index-i, index as usize)){
-
-//                 };
-                
-//             }
-            
-           
-//         }
-//     }
-
-    
-    
-// }
-
-pub(crate) fn greedy_switch_k_step(sublist:&mut Vec<(i32,usize)>,interconnection_matrix:&SmartCOOInterconnectionMatrix,k:usize) -> bool{
+/**
+ * Perfoms one pass of k-step greedy switch local search
+ * This searches for benefitial exchanges between vertices which are k steps appart.
+ */
+pub(crate) fn greedy_switch_k_step(sublist:&mut Vec<(i32,usize)>,interconnection_matrix:&COOInterconnectionMatrix,k:usize) -> bool{
     let mut switched = false;
     for i in 0.. (sublist.len() -k){
         let j = i+k;
@@ -202,7 +159,11 @@ pub(crate) fn greedy_switch_k_step(sublist:&mut Vec<(i32,usize)>,interconnection
     return switched;
 }
 
-fn should_switch_between_indices(interconnection_matrix:&SmartCOOInterconnectionMatrix,sublist:&mut Vec<(i32,usize)>,i:usize,j:usize) -> bool{
+/**
+ * Checks if it is beneficial to switch between index i and j in a sublist.
+
+ */
+fn should_switch_between_indices(interconnection_matrix:&COOInterconnectionMatrix,sublist:&mut Vec<(i32,usize)>,i:usize,j:usize) -> bool{
     let (mut stay,mut switch) = interconnection_matrix.calc_local_cross_count_touple_between_edgelists(sublist[i].1, sublist[j].1);
     for k in  i+1..j{
         stay += interconnection_matrix.calc_local_cross_count_touple_between_edgelists(sublist[i].1, sublist[k].1).0;
@@ -219,68 +180,38 @@ fn should_switch_between_indices(interconnection_matrix:&SmartCOOInterconnection
 
 }
 
-// pub(crate) fn interleave_local_search(sublist:&mut Vec<(i32,usize)>,interconnection_matrix:&SmartCOOInterconnectionMatrix,width:usize,overlap:usize) -> bool{
-//     if sublist.len() < width {
-//         return interleave_local_search(sublist, interconnection_matrix, sublist.len(), overlap);
-//     }
 
-//     let mut i = 0;
-//     let step = width - overlap;
-//     let mut did_cange_overall = false;
-    
-//     while i <= sublist.len() - width {
-        
-//         if should_terminate() {
-//             eprintln!("abort");
-//             break;
-//         }
+/**
+ * Performs the following Steps:
+ * 1. Generate a penalty graph from the given interconnection Matrix
+ * 2. Condenses the graph to make it acyclic.
+ * 3. Sorts the condensed graph topologically.
+ * 4. Sorts the condensed vertices according to a heuristic.
+ */
+pub(crate) fn solve_base_heuristic_on_penalty_graph(interconnection_matrix:&COOInterconnectionMatrix) -> Option<Vec<Vec<(i32,usize)>>>{
 
-//         let (did_change,_count,perm) = interconnection_matrix.permutate_on_sublist(&sublist[i..i+width]);
-//         if did_change {
-//             for j in 0..perm.len()  {
-//                 sublist[j+i] = perm[j];
-//             }
-//             did_cange_overall = true;
-//         }
-
-//         i += step;
-//     }
-
-//     return did_cange_overall
-// }
-
-
-
-
-
-
-pub(crate) fn solve_base_heuristic_on_penalty_graph(interconnection_matrix:&SmartCOOInterconnectionMatrix) -> Option<Vec<Vec<(i32,usize)>>>{
-    eprintln!("Generating Penalty graph...");
-    
     let penalty_graph_option = PenaltyGraph::parse(&interconnection_matrix);
+
+    //Break if parsing has failed due to timing or current memory usage would not allow to proceed without going over the maximum allowed allocated Memory.
     if penalty_graph_option.is_none() || PEAK_ALLOC.current_usage_as_gb() > 4.0 {
-        eprintln!("Stopping Penalty graph...");
         return None;
     }
 
-    eprintln!("Condensiong Penalty graph...");
 
     let condensed_option = penalty_graph_option.unwrap().CondenseGraph();
+    
     if condensed_option.is_none() {
         return None;
     }
+
     let condensed = condensed_option.unwrap();
-    //Condense pentalty graph
+
     if should_terminate() {
         return None;
     }
 
     //Sort topologically
-    eprintln!("Sorting Penalty graph...");
-
-
-
-    let topological_sort_option = condensed.SortWithKahnsAlgorithm();
+    let topological_sort_option = condensed.sort_with_kahns_algorithm();
     if topological_sort_option.is_none(){
         return None;
     }
@@ -291,18 +222,21 @@ pub(crate) fn solve_base_heuristic_on_penalty_graph(interconnection_matrix:&Smar
     }
     let mut intermediate_result : Vec<Vec<(i32,usize)>> = Vec::new();
 
+
     let mut speedup = false;
-    eprintln!("Calculating heuristics...");
 
     for vertex_reference in topological_sort {
         let vert = &condensed.vertices[vertex_reference];
+        
+        //if termination is imminent speedup the process by just calculating one of the heuristics.
         if should_terminate() {
             speedup = true;
         }
+
         if vert.isCondensed {
             
-            //Apply heuristic
-            let subproblem =vert.CondensedVertices.as_ref().unwrap().sort_eads_heuristic(VertexArcBaseHeuristic::Baharev);
+            //Apply first heuristic.
+            let subproblem =vert.CondensedVertices.as_ref().unwrap().sort_penalty_graph_with_heuristic(VertexArcBaseHeuristic::Baharev);
             
             let mut p_heuristic = Vec::new();
             for vertex in subproblem{
@@ -313,18 +247,18 @@ pub(crate) fn solve_base_heuristic_on_penalty_graph(interconnection_matrix:&Smar
                 intermediate_result.push(p_heuristic)
             }
             else {
-                // apply other heuristic
+                //Apply second heuristic.
                 let subproblem =vert.CondensedVertices.as_ref().unwrap();
                 let mut subproblem_references: Vec<(i32,usize)> = Vec::new();
                 for vertice in &subproblem.vertices{
                     subproblem_references.push(interconnection_matrix.loose[vertice.InterconRef]);
                 }
                 
-                //let ( m_count,  m_heuristic) = interconnection_matrix.MedianMeanOnSublist(&subproblem_references,false,false);
+                //Decide which heuristic to use.
                 let mean_temp=interconnection_matrix.mean_heuristic_from_sublist(&subproblem_references);
                 let m_heuristic = interconnection_matrix.collapse_loose_edge_list(mean_temp, crate::interconnection::TieBreaker::Median);
-                let m_heur_count = interconnection_matrix.calculate_current_crossing_count_with_slow_fertig_on_sublist(&m_heuristic); 
-                let p_heur_count = interconnection_matrix.calculate_current_crossing_count_with_slow_fertig_on_sublist(&p_heuristic);
+                let m_heur_count = interconnection_matrix.calculate_current_crossing_count_on_sublist(&m_heuristic); 
+                let p_heur_count = interconnection_matrix.calculate_current_crossing_count_on_sublist(&p_heuristic);
      
     
                 if p_heur_count < m_heur_count {
