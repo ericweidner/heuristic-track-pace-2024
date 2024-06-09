@@ -1,10 +1,10 @@
 # Solver heuristic-track-pace-2024
-
+A Heuristic solver for the 2024 PACE-Challenge.
 ## Authors:
 * Dr. Carolin Rehs*
 * Eric Weidner B.Sc.
 
-\*Accademic supervision
+\*Academic supervision in accordance with the requirements for a student submission.
 ## How it Works
 The program solves a given One-Sided Crossing Minimization (OSCM) instance approximately with the help of heuristics. It is based on the construction of the penalty graph as used, for example, in an exact method by Sugiyama et al. (10.1109/TSMC.1981.4308636). Sugiyama et al. are using an instance of the Feedback Arc Set (FAS) Problem on the penalty graph to derive an exact solution for the OSCM-Problem.
 But instead of computing an exact solution for the resulting strongly connected components, the solver applies various heuristic strategies (both for OSCM and FAS) to compute an initial solution. In the end, several local search methods are used to improve the given result.
